@@ -2,11 +2,9 @@ const express = require('express');
 const crypto = require('crypto');
 const nodemailer = require('nodemailer');
 const axios = require('axios');
- 
+
 const app = express();
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
- 
+
 // ===== НАЛАШТУВАННЯ =====
 const CONFIG = {
   WFP_MERCHANT:   'elegant_paprenjak_8aa868_netlify_app1',
@@ -18,9 +16,10 @@ const CONFIG = {
   CHECKBOX_KEY:   '8bc597cc9b6f05ece7f4fbd9',
   GMAIL_USER:     process.env.GMAIL_USER || '',
   GMAIL_PASS:     process.env.GMAIL_PASS || '',
-  SITE_URL:       process.env.SITE_URL || 'https://coruscating-cajeta-ed9e2c.netlify.app',
+  SITE_URL:       'https://coruscating-cajeta-ed9e2c.netlify.app',
+  SERVER_URL:     'https://waynarogo-server.onrender.com',
 };
- 
+
 // ===== CORS =====
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
@@ -32,13 +31,13 @@ app.use((req, res, next) => {
 
 app.use(express.json({ type: '*/*' }));
 app.use(express.urlencoded({ extended: true }));
- 
-// ===== HMAC-MD5 підпис для Way4Pay =====
+
+// ===== HMAC-MD5 підпис для WayForPay =====
 function wfpSign(fields) {
   const str = fields.join(';');
   return crypto.createHmac('md5', CONFIG.WFP_SECRET).update(str).digest('hex');
 }
- 
+
 // ===== TELEGRAM =====
 async function sendTelegram(text) {
   try {
@@ -47,15 +46,16 @@ async function sendTelegram(text) {
       text,
       parse_mode: 'Markdown',
     });
+    console.log('Telegram sent OK');
   } catch (e) {
     console.error('Telegram error:', e.message);
   }
 }
- 
-// ===== EMAIL =====
+
+// ===== EMAIL через Gmail =====
 async function sendEmail(to, subject, html) {
   if (!CONFIG.GMAIL_USER || !CONFIG.GMAIL_PASS) {
-    console.log('Email not configured, skipping');
+    console.log('Email not configured — add GMAIL_USER and GMAIL_PASS in Render environment');
     return;
   }
   try {
@@ -63,14 +63,14 @@ async function sendEmail(to, subject, html) {
       service: 'gmail',
       auth: { user: CONFIG.GMAIL_USER, pass: CONFIG.GMAIL_PASS },
     });
-    await transporter.sendMail({ from: CONFIG.GMAIL_USER, to, subject, html });
+    await transporter.sendMail({ from: `WaynaroGo <${CONFIG.GMAIL_USER}>`, to, subject, html });
     console.log('Email sent to', to);
   } catch (e) {
     console.error('Email error:', e.message);
   }
 }
- 
-// ===== CHECKBOX — отримати токен касира =====
+
+// ===== CHECKBOX — логін =====
 async function checkboxLogin() {
   try {
     const res = await axios.post('https://api.checkbox.ua/api/v1/cashier/signin', {
@@ -85,25 +85,18 @@ async function checkboxLogin() {
     return null;
   }
 }
- 
-// ===== CHECKBOX — створити фіскальний чек =====
+
+// ===== CHECKBOX — створити чек =====
 async function createCheckboxReceipt(token, amount, description, email) {
   try {
     const amountKop = Math.round(amount * 100);
     const body = {
       goods: [{
-        good: {
-          code: '1',
-          name: description,
-          price: amountKop,
-        },
+        good: { code: '1', name: description, price: amountKop },
         quantity: 1000,
         is_return: false,
       }],
-      payments: [{
-        type: 'CASHLESS',
-        value: amountKop,
-      }],
+      payments: [{ type: 'CASHLESS', value: amountKop }],
       delivery: email ? { email } : undefined,
     };
     const res = await axios.post('https://api.checkbox.ua/api/v1/receipts/sell', body, {
@@ -119,14 +112,12 @@ async function createCheckboxReceipt(token, amount, description, email) {
     return null;
   }
 }
- 
+
 // ===== ГЕНЕРАЦІЯ HTML КВИТКА =====
 function generateTicketHTML(booking, receiptUrl) {
   const now = new Date().toLocaleString('uk-UA', { timeZone: 'Europe/Kyiv' });
-  const qrUrl = receiptUrl
-    ? `https://chart.googleapis.com/chart?chs=150x150&cht=qr&chl=${encodeURIComponent(receiptUrl)}`
-    : `https://chart.googleapis.com/chart?chs=150x150&cht=qr&chl=${encodeURIComponent(CONFIG.SITE_URL)}`;
- 
+  const qrUrl = `https://chart.googleapis.com/chart?chs=150x150&cht=qr&chl=${encodeURIComponent(receiptUrl || CONFIG.SITE_URL)}`;
+
   return `<!DOCTYPE html>
 <html lang="uk">
 <head>
@@ -156,8 +147,6 @@ function generateTicketHTML(booking, receiptUrl) {
   .info-value { font-size: 14px; font-weight: 600; color: #111827; text-align: right; }
   .info-sub { font-size: 12px; color: #6b7280; }
   .amount { font-size: 22px; font-weight: 700; }
-  .qr-row { padding: 0 28px 20px; text-align: center; }
-  .qr-label { font-size: 10px; color: #9ca3af; margin-top: 6px; }
   .footer { background: #f9fafb; border-top: 1.5px dashed #e5e7eb; padding: 18px 28px; text-align: center; }
   .footer-thanks { font-size: 14px; font-weight: 600; color: #111827; }
   .footer-site { color: #2563a8; font-size: 13px; }
@@ -168,6 +157,7 @@ function generateTicketHTML(booking, receiptUrl) {
   .route-line { display: flex; align-items: flex-start; margin-bottom: 20px; gap: 12px; }
   .route-dots { display: flex; flex-direction: column; align-items: center; padding-top: 4px; gap: 4px; }
   .vline { width: 1.5px; height: 30px; background: repeating-linear-gradient(to bottom, #e5e7eb 0, #e5e7eb 5px, transparent 5px, transparent 9px); }
+  .btn { display: inline-block; background: #111827; color: white; padding: 12px 28px; border-radius: 8px; text-decoration: none; font-weight: 700; font-size: 14px; margin: 16px 0; }
 </style>
 </head>
 <body>
@@ -179,7 +169,6 @@ function generateTicketHTML(booking, receiptUrl) {
       <strong>№ ${booking.id}</strong>
     </div>
   </div>
- 
   <div class="route">
     <div class="route-line">
       <div class="route-dots">
@@ -193,40 +182,36 @@ function generateTicketHTML(booking, receiptUrl) {
           <span class="stop-time">${booking.departure || ''}</span>
           <span class="stop-day">${booking.date}</span>
           <div class="stop-city">${(booking.boarding || '').split('(')[0].trim()}</div>
-          <div class="stop-addr">${booking.boardingAddr || ''}</div>
         </div>
         <div>
           <div class="stop-label">Прибуття</div>
           <span class="stop-time">${booking.arrivalTime || '—'}</span>
           <span class="stop-day">${booking.date}</span>
           <div class="stop-city">${(booking.exit || '').split('(')[0].trim()}</div>
-          <div class="stop-addr">${booking.exitAddr || ''}</div>
         </div>
       </div>
-      <div class="qr-row" style="padding:0;min-width:110px;text-align:center">
+      <div style="text-align:center;min-width:110px">
         <img src="${qrUrl}" width="110" height="110" alt="QR">
-        <div class="qr-label">Фіскальний чек</div>
+        <div style="font-size:10px;color:#9ca3af;margin-top:4px">Фіскальний чек</div>
       </div>
     </div>
   </div>
- 
   <hr class="divider">
- 
   <div class="info">
     <div class="info-row">
       <div><div class="info-label">Пасажир</div><div class="info-sub">${booking.phone}</div></div>
       <div class="info-value">${booking.name}</div>
     </div>
     <div class="info-row">
-      <div class="info-label">Маршрут автобуса</div>
+      <div class="info-label">Маршрут</div>
       <div class="info-value" style="font-size:12px">м. Білгород-Дністровський → м. Одеса → м. Київ</div>
     </div>
     <div class="info-row">
-      <div><div class="info-label">Перевізник</div><div class="info-sub">м. Дніпро · +38 093 735 20 15</div></div>
+      <div><div class="info-label">Перевізник</div></div>
       <div class="info-value" style="font-size:12px">ФОП Прус Олена Миколаївна</div>
     </div>
     <div class="info-row">
-      <div class="info-label">Кількість пасажирів</div>
+      <div class="info-label">Пасажирів</div>
       <div class="info-value">${booking.pax || 1}</div>
     </div>
     <div class="info-row">
@@ -234,15 +219,16 @@ function generateTicketHTML(booking, receiptUrl) {
       <div class="info-value amount">${booking.total} грн</div>
     </div>
   </div>
- 
+  <div style="text-align:center;padding:0 28px 20px">
+    <a href="${receiptUrl || CONFIG.SITE_URL}" class="btn">🧾 Переглянути фіскальний чек</a>
+  </div>
   <div class="footer">
     <div class="footer-thanks">Дякуємо, що скористались нашим сайтом!</div>
     <div class="footer-site">waynarogo.com</div>
     <div class="footer-support">Служба підтримки: +38 093 735 20 15 · Щодня 9:00 — 21:00</div>
   </div>
- 
   <div class="refund">
-    <div class="refund-title">Умови повернення квитка</div>
+    <div class="refund-title">Умови повернення</div>
     <div class="refund-item">· Більше ніж за 48 год — повернення 100%</div>
     <div class="refund-item">· Від 24 до 48 год — повернення 75%</div>
     <div class="refund-item">· Від 12 до 24 год — повернення 50%</div>
@@ -252,70 +238,86 @@ function generateTicketHTML(booking, receiptUrl) {
 </body>
 </html>`;
 }
- 
-// ===== МАРШРУТ: Генерація підпису для Way4Pay =====
-app.post('/api/wfp-sign', async (req, res) => {
+
+// ===== ЗБЕРІГАННЯ БРОНЮВАНЬ =====
+const pendingBookings = {};
+
+// ===== API: Зберегти бронювання =====
+app.post('/api/booking', (req, res) => {
+  try {
+    const { booking } = req.body;
+    if (!booking) return res.status(400).json({ error: 'No booking' });
+    pendingBookings[booking.id] = booking;
+    console.log('Booking saved:', booking.id);
+    res.json({ status: 'ok', id: booking.id });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ===== API: Підпис для WayForPay =====
+app.post('/api/wfp-sign', (req, res) => {
   try {
     const { booking } = req.body;
     if (!booking) return res.status(400).json({ error: 'No booking data' });
- 
-    const orderRef  = booking.id;
-    const amount    = booking.total;
-    const orderDate = Math.floor(Date.now() / 1000);
-    const domain    = new URL(CONFIG.SITE_URL).hostname;
+
+    const orderDate   = Math.floor(Date.now() / 1000);
+    const domain      = 'coruscating-cajeta-ed9e2c.netlify.app';
     const productName = `Квиток ${booking.route}`;
- 
-    const signFields = [
-      CONFIG.WFP_MERCHANT, domain, orderRef, orderDate,
-      amount, 'UAH', productName, 1, amount
-    ];
-    const signature = wfpSign(signFields);
- 
+
+    const signature = wfpSign([
+      CONFIG.WFP_MERCHANT, domain, booking.id,
+      orderDate, booking.total, 'UAH',
+      productName, 1, booking.total
+    ]);
+
     res.json({
       merchantAccount:    CONFIG.WFP_MERCHANT,
       merchantDomainName: domain,
-      orderReference:     orderRef,
-      orderDate:          orderDate,
-      amount:             amount,
+      orderReference:     booking.id,
+      orderDate,
+      amount:             booking.total,
       currency:           'UAH',
-      productName:        productName,
-      productPrice:       amount,
+      productName,
+      productPrice:       booking.total,
       productCount:       1,
       clientFirstName:    booking.name.split(' ')[0] || '',
       clientLastName:     booking.name.split(' ')[1] || '',
       clientPhone:        booking.phone,
       clientEmail:        booking.email || '',
       language:           'UA',
-      returnUrl:          CONFIG.SITE_URL,
-      serviceUrl:         `${process.env.SERVER_URL || 'https://your-server.onrender.com'}/api/wfp-callback`,
+      returnUrl:          `${CONFIG.SITE_URL}/success.html`,
+      serviceUrl:         `${CONFIG.SERVER_URL}/api/wfp-callback`,
       merchantSignature:  signature,
     });
   } catch (e) {
-    console.error(e);
     res.status(500).json({ error: e.message });
   }
 });
- 
-// ===== МАРШРУТ: Callback від Way4Pay після оплати =====
+
+// ===== API: Callback від WayForPay після оплати =====
 app.post('/api/wfp-callback', async (req, res) => {
   try {
     const data = req.body;
-    console.log('WFP Callback:', JSON.stringify(data));
- 
+    console.log('WFP Callback received:', JSON.stringify(data));
+
+    // Відповідаємо WayForPay одразу
+    res.json({ status: 'ok' });
+
     if (data.transactionStatus !== 'Approved') {
-      return res.json({ status: 'ok' });
+      console.log('Payment not approved:', data.transactionStatus);
+      return;
     }
- 
-    // Отримуємо дані бронювання (збережені на сервері)
+
     const booking = pendingBookings[data.orderReference];
     if (!booking) {
-      console.log('Booking not found:', data.orderReference);
-      return res.json({ status: 'ok' });
+      console.log('Booking not found for:', data.orderReference);
+      return;
     }
- 
+
     const now = new Date().toLocaleString('uk-UA', { timeZone: 'Europe/Kyiv' });
- 
-    // 1. Створюємо фіскальний чек в Checkbox
+
+    // 1. Checkbox фіскальний чек
     let receiptUrl = null;
     const cbToken = await checkboxLogin();
     if (cbToken) {
@@ -327,11 +329,11 @@ app.post('/api/wfp-callback', async (req, res) => {
       );
       if (receipt) {
         receiptUrl = `https://receipt.checkbox.ua/${receipt.id}`;
-        console.log('Checkbox receipt created:', receiptUrl);
+        console.log('Checkbox receipt:', receiptUrl);
       }
     }
- 
-    // 2. Надсилаємо квиток на email
+
+    // 2. Email з квитком
     if (booking.email) {
       const ticketHtml = generateTicketHTML(booking, receiptUrl);
       await sendEmail(
@@ -340,53 +342,33 @@ app.post('/api/wfp-callback', async (req, res) => {
         ticketHtml
       );
     }
- 
-    // 3. Telegram повідомлення
+
+    // 3. Telegram
     await sendTelegram(
       `✅ *ОПЛАТА ОТРИМАНА!*\n\n` +
       `👤 *Пасажир:* ${booking.name}\n` +
-      `📞 *Телефон:* ${booking.phone}\n\n` +
+      `📞 *Телефон:* ${booking.phone}\n` +
+      `📧 *Email:* ${booking.email || '—'}\n\n` +
       `🗺 *Маршрут:* ${booking.route}\n` +
       `📍 *Посадка:* ${booking.boarding}\n` +
       `📍 *Висадка:* ${booking.exit}\n` +
       `🕐 *Рейс:* ${booking.departure}\n` +
-      `📅 *Дата поїздки:* ${booking.date}\n` +
+      `📅 *Дата:* ${booking.date}\n` +
       `👥 *Пасажирів:* ${booking.pax}\n` +
       `💰 *Сума:* ${data.amount || booking.total} грн\n` +
       `🆔 *№ квитка:* ${booking.id}\n\n` +
-      `🕒 *Оформлено:* ${booking.created}\n` +
       `✅ *Оплачено:* ${now}\n` +
-      (receiptUrl ? `🧾 *Фіскальний чек:* ${receiptUrl}` : '')
+      (receiptUrl ? `🧾 *Чек:* ${receiptUrl}` : '')
     );
- 
+
     delete pendingBookings[data.orderReference];
-    res.json({ status: 'ok' });
   } catch (e) {
     console.error('Callback error:', e);
-    res.status(500).json({ error: e.message });
   }
 });
- 
-// ===== МАРШРУТ: Зберегти бронювання =====
-const pendingBookings = {};
- 
-app.post('/api/booking', async (req, res) => {
-  try {
-    const { booking } = req.body;
-    if (!booking) return res.status(400).json({ error: 'No booking' });
- 
-    pendingBookings[booking.id] = booking;
-    console.log('Booking saved:', booking.id);
- 
-    res.json({ status: 'ok', id: booking.id });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
- 
+
 // ===== HEALTH CHECK =====
 app.get('/', (req, res) => res.send('WaynaroGo Server OK'));
- 
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
- 
