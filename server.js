@@ -157,7 +157,7 @@ function generateTicketHTML(booking, receiptUrl) {
   .route-line { display: flex; align-items: flex-start; margin-bottom: 20px; gap: 12px; }
   .route-dots { display: flex; flex-direction: column; align-items: center; padding-top: 4px; gap: 4px; }
   .vline { width: 1.5px; height: 30px; background: repeating-linear-gradient(to bottom, #e5e7eb 0, #e5e7eb 5px, transparent 5px, transparent 9px); }
-  .btn { display: inline-block; background: #111827; color: white; padding: 12px 28px; border-radius: 8px; text-decoration: none; font-weight: 700; font-size: 14px; margin: 16px 0; }
+
 </style>
 </head>
 <body>
@@ -219,8 +219,8 @@ function generateTicketHTML(booking, receiptUrl) {
       <div class="info-value amount">${booking.total} грн</div>
     </div>
   </div>
-  <div style="text-align:center;padding:0 28px 20px">
-    <a href="${receiptUrl || CONFIG.SITE_URL}" class="btn">🧾 Переглянути фіскальний чек</a>
+  <div style="text-align:center;padding:12px 28px;font-size:12px;color:#6b7280">
+    🧾 Фіскальний чек надіслано на вашу email від WayForPay
   </div>
   <div class="footer">
     <div class="footer-thanks">Дякуємо, що скористались нашим сайтом!</div>
@@ -313,25 +313,13 @@ app.post('/api/wfp-callback', async (req, res) => {
       return;
     }
 
-    // Спочатку шукаємо в пам'яті, якщо немає — використовуємо дані з WayForPay callback
+    // Шукаємо бронювання в пам'яті сервера
     let booking = pendingBookings[data.orderReference];
     
     if (!booking) {
-      console.log('Booking not in memory, using WFP callback data for:', data.orderReference);
-      // Формуємо мінімальне бронювання з даних callback
-      booking = {
-        id: data.orderReference,
-        name: data.clientName || (data.clientFirstName ? `${data.clientFirstName} ${data.clientLastName || ''}`.trim() : 'Пасажир'),
-        phone: data.phone || data.clientPhone || '—',
-        email: data.email || data.clientEmail || '',
-        route: data.productName ? (Array.isArray(data.productName) ? data.productName[0] : data.productName).replace('Квиток ', '') : '—',
-        total: data.amount || '—',
-        date: '—',
-        departure: '—',
-        boarding: '—',
-        exit: '—',
-        pax: 1,
-      };
+      console.log('Booking not in memory, skipping old callback for:', data.orderReference);
+      // Не надсилаємо повідомлення для старих транзакцій без даних
+      return;
     }
 
     const now = new Date().toLocaleString('uk-UA', { timeZone: 'Europe/Kyiv' });
@@ -363,6 +351,7 @@ app.post('/api/wfp-callback', async (req, res) => {
     }
 
     // 3. Telegram
+    const fullRoute = `м. Білгород-Дністровський → м. Київ (${booking.tripType || booking.route})`;
     await sendTelegram(
       `✅ *ОПЛАТА ОТРИМАНА!*
 
@@ -374,13 +363,13 @@ app.post('/api/wfp-callback', async (req, res) => {
       `📧 *Email:* ${booking.email || '—'}
 
 ` +
-      `🗺 *Маршрут:* ${booking.route}
+      `🗺 *Маршрут:* ${fullRoute}
 ` +
       `📍 *Посадка:* ${booking.boarding}
 ` +
       `📍 *Висадка:* ${booking.exit}
 ` +
-      `🕐 *Рейс:* ${booking.departure}
+      `🕐 *Рейс:* ${booking.departure || '—'}
 ` +
       `📅 *Дата:* ${booking.date}
 ` +
