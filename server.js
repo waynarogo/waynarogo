@@ -20,6 +20,89 @@ const CONFIG = {
   SERVER_URL:     'https://waynarogo-server.onrender.com',
 };
 
+
+// ===== РОЗКЛАД ЗУПИНОК =====
+const STOP_ADDRESSES = {
+  "Білгород-Дністровський (Автовокзал)": "вул. Вокзальна, 2",
+  "Старокозаче": "траса Е87 / М15",
+  "Маяки": "вул. Радянської Армії",
+  "Одеса (Автостанція Привокзальна)": "вул. Старосінна, 1Б",
+  "Одеса (Зупинка тролейбусу №8)": "вул. Колонтаївська",
+  "Криве Озеро": "траса М05",
+  "Умань (Автовокзал)": "вул. Київська, 1",
+  "Умань (АЗС Amic Energy)": "траса М05, АЗС AMIC Energy",
+  "Біла Церква (На трасі, під мостом)": "вул. Леваневського, під мостом",
+  "Київ (Метро Теремки)": "просп. Академіка Глушкова, 22",
+  "Київ (Центральний автовокзал)": "просп. Науки, 1/2",
+};
+
+const ROUTES = {
+  'r1': { // Ранній БД → Київ
+    stops: [
+      { name: "Білгород-Дністровський (Автовокзал)", depart: "05:40" },
+      { name: "Старокозаче", depart: "06:00" },
+      { name: "Маяки", depart: "06:20" },
+      { name: "Одеса (Автостанція Привокзальна)", depart: "08:00" },
+      { name: "Одеса (Зупинка тролейбусу №8)", depart: "08:15" },
+      { name: "Криве Озеро", depart: "10:15" },
+      { name: "Умань (Автовокзал)", arrive: "11:45", depart: "12:15" },
+      { name: "Умань (АЗС Amic Energy)", depart: "12:25" },
+      { name: "Біла Церква (На трасі, під мостом)", depart: "14:05" },
+      { name: "Київ (Метро Теремки)", depart: "14:50" },
+      { name: "Київ (Центральний автовокзал)", arrive: "15:00" },
+    ]
+  },
+  'r3': { // Денний БД → Київ
+    stops: [
+      { name: "Білгород-Дністровський (Автовокзал)", depart: "11:00" },
+      { name: "Старокозаче", depart: "11:20" },
+      { name: "Маяки", depart: "11:35" },
+      { name: "Одеса (Автостанція Привокзальна)", depart: "13:00" },
+      { name: "Одеса (Зупинка тролейбусу №8)", depart: "13:15" },
+      { name: "Криве Озеро", depart: "15:15" },
+      { name: "Умань (Автовокзал)", arrive: "16:45", depart: "17:15" },
+      { name: "Умань (АЗС Amic Energy)", depart: "17:25" },
+      { name: "Біла Церква (На трасі, під мостом)", depart: "19:05" },
+      { name: "Київ (Метро Теремки)", depart: "19:50" },
+      { name: "Київ (Центральний автовокзал)", arrive: "20:00" },
+    ]
+  },
+  'r5': { // Нічний БД → Київ
+    stops: [
+      { name: "Білгород-Дністровський (Автовокзал)", depart: "19:15" },
+      { name: "Старокозаче", depart: "19:35" },
+      { name: "Маяки", depart: "19:50" },
+      { name: "Одеса (Автостанція Привокзальна)", depart: "21:15" },
+      { name: "Одеса (Зупинка тролейбусу №8)", depart: "21:30" },
+      { name: "Криве Озеро", depart: "23:30" },
+      { name: "Умань (Автовокзал)", arrive: "01:00", depart: "01:30" },
+      { name: "Умань (АЗС Amic Energy)", depart: "01:40" },
+      { name: "Біла Церква (На трасі, під мостом)", depart: "03:20" },
+      { name: "Київ (Метро Теремки)", depart: "04:05" },
+      { name: "Київ (Центральний автовокзал)", arrive: "04:15" },
+    ]
+  },
+};
+
+function getStopTime(routeId, stopName, type) {
+  const route = ROUTES[routeId];
+  if (!route) return '';
+  const stop = route.stops.find(s => s.name === stopName);
+  if (!stop) return '';
+  return type === 'arrive' ? (stop.arrive || stop.depart || '') : (stop.depart || stop.arrive || '');
+}
+
+function findRouteByBooking(booking) {
+  const tripType = (booking.tripType || booking.route || '').toLowerCase();
+  const isNight = tripType.includes('нічний') || tripType.includes('night');
+  const isDay = tripType.includes('денний') || tripType.includes('day');
+  const isEarly = tripType.includes('ранній') || tripType.includes('early');
+  if (isNight) return 'r5';
+  if (isDay) return 'r3';
+  if (isEarly) return 'r1';
+  return 'r5'; // default
+}
+
 // ===== CORS =====
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
@@ -116,7 +199,23 @@ async function createCheckboxReceipt(token, amount, description, email) {
 // ===== ГЕНЕРАЦІЯ HTML КВИТКА =====
 function generateTicketHTML(booking, receiptUrl) {
   const now = new Date().toLocaleString('uk-UA', { timeZone: 'Europe/Kyiv' });
-  const qrUrl = `https://chart.googleapis.com/chart?chs=150x150&cht=qr&chl=${encodeURIComponent(receiptUrl || CONFIG.SITE_URL)}`;
+  
+  // Знаходимо час і адреси зупинок
+  const routeId = findRouteByBooking(booking);
+  const departTime = booking.departure || getStopTime(routeId, booking.boarding, 'depart');
+  const arrivalTime = booking.arrivalTime || getStopTime(routeId, booking.exit, 'arrive');
+  const boardingAddr = STOP_ADDRESSES[booking.boarding] || '';
+  const exitAddr = STOP_ADDRESSES[booking.exit] || '';
+
+  // QR веде на квиток
+  const ticketParams = new URLSearchParams({
+    id: booking.id, name: booking.name, phone: booking.phone,
+    route: booking.route, date: booking.date,
+    departure: departTime, arrival: arrivalTime,
+    boarding: booking.boarding, exit: booking.exit,
+    pax: booking.pax, total: booking.total, paid_at: now,
+  });
+  const qrUrl = `https://chart.googleapis.com/chart?chs=120x120&cht=qr&chl=${encodeURIComponent(CONFIG.SITE_URL + '/ticket.html?' + ticketParams.toString())}&choe=UTF-8`;
 
   return `<!DOCTYPE html>
 <html lang="uk">
@@ -179,15 +278,17 @@ function generateTicketHTML(booking, receiptUrl) {
       <div style="flex:1">
         <div style="margin-bottom:18px">
           <div class="stop-label">Відправлення</div>
-          <span class="stop-time">${booking.departure || ''}</span>
+          <span class="stop-time">${departTime || '—'}</span>
           <span class="stop-day">${booking.date}</span>
           <div class="stop-city">${(booking.boarding || '').split('(')[0].trim()}</div>
+          <div class="stop-addr">${boardingAddr}</div>
         </div>
         <div>
           <div class="stop-label">Прибуття</div>
-          <span class="stop-time">${booking.arrivalTime || '—'}</span>
+          <span class="stop-time">${arrivalTime || '—'}</span>
           <span class="stop-day">${booking.date}</span>
           <div class="stop-city">${(booking.exit || '').split('(')[0].trim()}</div>
+          <div class="stop-addr">${exitAddr}</div>
         </div>
       </div>
       <div style="text-align:center;min-width:110px">
