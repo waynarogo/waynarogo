@@ -309,10 +309,25 @@ app.post('/api/wfp-callback', async (req, res) => {
       return;
     }
 
-    const booking = pendingBookings[data.orderReference];
+    // Спочатку шукаємо в пам'яті, якщо немає — використовуємо дані з WayForPay callback
+    let booking = pendingBookings[data.orderReference];
+    
     if (!booking) {
-      console.log('Booking not found for:', data.orderReference);
-      return;
+      console.log('Booking not in memory, using WFP callback data for:', data.orderReference);
+      // Формуємо мінімальне бронювання з даних callback
+      booking = {
+        id: data.orderReference,
+        name: data.clientName || (data.clientFirstName ? `${data.clientFirstName} ${data.clientLastName || ''}`.trim() : 'Пасажир'),
+        phone: data.phone || data.clientPhone || '—',
+        email: data.email || data.clientEmail || '',
+        route: data.productName ? (Array.isArray(data.productName) ? data.productName[0] : data.productName).replace('Квиток ', '') : '—',
+        total: data.amount || '—',
+        date: '—',
+        departure: '—',
+        boarding: '—',
+        exit: '—',
+        pax: 1,
+      };
     }
 
     const now = new Date().toLocaleString('uk-UA', { timeZone: 'Europe/Kyiv' });
@@ -345,19 +360,35 @@ app.post('/api/wfp-callback', async (req, res) => {
 
     // 3. Telegram
     await sendTelegram(
-      `✅ *ОПЛАТА ОТРИМАНА!*\n\n` +
-      `👤 *Пасажир:* ${booking.name}\n` +
-      `📞 *Телефон:* ${booking.phone}\n` +
-      `📧 *Email:* ${booking.email || '—'}\n\n` +
-      `🗺 *Маршрут:* ${booking.route}\n` +
-      `📍 *Посадка:* ${booking.boarding}\n` +
-      `📍 *Висадка:* ${booking.exit}\n` +
-      `🕐 *Рейс:* ${booking.departure}\n` +
-      `📅 *Дата:* ${booking.date}\n` +
-      `👥 *Пасажирів:* ${booking.pax}\n` +
-      `💰 *Сума:* ${data.amount || booking.total} грн\n` +
-      `🆔 *№ квитка:* ${booking.id}\n\n` +
-      `✅ *Оплачено:* ${now}\n` +
+      `✅ *ОПЛАТА ОТРИМАНА!*
+
+` +
+      `👤 *Пасажир:* ${booking.name}
+` +
+      `📞 *Телефон:* ${booking.phone}
+` +
+      `📧 *Email:* ${booking.email || '—'}
+
+` +
+      `🗺 *Маршрут:* ${booking.route}
+` +
+      `📍 *Посадка:* ${booking.boarding}
+` +
+      `📍 *Висадка:* ${booking.exit}
+` +
+      `🕐 *Рейс:* ${booking.departure}
+` +
+      `📅 *Дата:* ${booking.date}
+` +
+      `👥 *Пасажирів:* ${booking.pax}
+` +
+      `💰 *Сума:* ${data.amount || booking.total} грн
+` +
+      `🆔 *№ квитка:* ${booking.id}
+
+` +
+      `✅ *Оплачено:* ${now}
+` +
       (receiptUrl ? `🧾 *Чек:* ${receiptUrl}` : '')
     );
 
