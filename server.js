@@ -255,11 +255,15 @@ app.post('/api/booking', (req, res) => {
   }
 });
 
-// ===== API: Підпис для WayForPay =====
+// ===== API: Підпис для WayForPay + зберігаємо бронювання =====
 app.post('/api/wfp-sign', (req, res) => {
   try {
     const { booking } = req.body;
     if (!booking) return res.status(400).json({ error: 'No booking data' });
+
+    // Зберігаємо бронювання в пам'яті сервера
+    pendingBookings[booking.id] = booking;
+    console.log('Booking saved:', booking.id, booking.name, booking.route);
 
     const orderDate   = Math.floor(Date.now() / 1000);
     const domain      = 'coruscating-cajeta-ed9e2c.netlify.app';
