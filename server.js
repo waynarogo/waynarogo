@@ -16,7 +16,7 @@ const CONFIG = {
   CHECKBOX_KEY:   '8bc597cc9b6f05ece7f4fbd9',
   GMAIL_USER:     process.env.GMAIL_USER || '',
   GMAIL_PASS:     process.env.GMAIL_PASS || '',
-  SITE_URL:       'https://coruscating-cajeta-ed9e2c.netlify.app',
+  SITE_URL:       'https://waynarogo.com',
   SERVER_URL:     'https://waynarogo-server.onrender.com',
 };
 
@@ -215,7 +215,7 @@ function generateTicketHTML(booking, receiptUrl) {
     boarding: booking.boarding, exit: booking.exit,
     pax: booking.pax, total: booking.total, paid_at: now,
   });
-  const qrUrl = `https://chart.googleapis.com/chart?chs=120x120&cht=qr&chl=${encodeURIComponent(CONFIG.SITE_URL + '/ticket.html?' + ticketParams.toString())}&choe=UTF-8`;
+  const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent(CONFIG.SITE_URL + '/ticket.html?' + ticketParams.toString())}`;
 
   return `<!DOCTYPE html>
 <html lang="uk">
@@ -367,7 +367,7 @@ app.post('/api/wfp-sign', (req, res) => {
     console.log('Booking saved:', booking.id, booking.name, booking.route);
 
     const orderDate   = Math.floor(Date.now() / 1000);
-    const domain      = 'coruscating-cajeta-ed9e2c.netlify.app';
+    const domain      = 'waynarogo.com';
     const productName = `Квиток ${booking.route}`;
 
     const signature = wfpSign([
